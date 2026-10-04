@@ -109,6 +109,14 @@ filter) goes into `lib/` and is tested there; `src/` stays thin.
   in a pocket.
 - `BatteryFilter` steadies the battery percentage, which sags under load.
 
+### Modules in lib/ for the IR range finder
+
+- `IrSweep` holds the 24 transmit powers (carrier duty from 1/1024 to 1/2,
+  50 dB) and turns the hits of one sweep into the echo margin in dB, or
+  `NoEcho`, `Saturated`, `Noisy`. `src/IrProbe` sends the bursts and reads
+  the receiver; what was found about the IR parts is in docs/StickS3.md,
+  "Infrared".
+
 ### Time is passed in as a parameter
 
 The logic in `lib/` does not call `millis()` itself; it receives the current
@@ -242,6 +250,10 @@ look at the screen. `main.cpp` takes line commands over serial, and
 | `k1`, `k2` | a press of KEY1 / KEY2, the same path as the real button |
 | `acc` | toggles `ACC ax ay az flipped=` lines at 10 Hz |
 | `st` | `ST board= awake= flipped= battery= internal= psram=` |
+| `sw` | one IR sweep now: `SW f= n= gap= noise= db= state= hits=...` |
+| `ir` | toggles an `IR db= state= noise=` line after every sweep |
+| `freq <hz>`, `n <bursts>`, `gap <us>` | IR carrier, bursts per level, pause after a burst |
+| `wave <level>` | one burst and the receiver's output every 20 us: `WAVE 111000...` |
 | anything else | `ERR unknown '<line>'` |
 
 A project adds its own commands to `runCommand()` and the list in

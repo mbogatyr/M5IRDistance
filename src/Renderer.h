@@ -1,25 +1,35 @@
 #pragma once
 
 #include <M5Unified.h>
+#include <string.h>
+
+#include "IrSweep.h"
 
 // Draws on the built-in StickS3 display (135x240).
 //
 // The whole frame is composed in a sprite and pushed in a single call:
 // drawing directly on the screen causes noticeable flicker.
 //
-// For now this is a placeholder that shows the time since power-on and the
-// battery level. In a new project the Screen fields and the body of paint()
-// change; the sprite, skipping identical frames, invalidate(), setFlipped()
-// and writeSnapshot() stay.
+// Shows the last IR sweep: the margin in dB (how much weaker than full power
+// the echo is still heard), and a bar per power level with how many of its
+// bursts were heard, weakest on the left.
 class Renderer {
   public:
     // Everything the screen shows; a frame is redrawn only when it changes.
     struct Screen {
-        uint32_t seconds = 0;
+        IrSweep::State state = IrSweep::State::NoEcho;
+        int marginDb10 = 0; // tenths of a dB
+        uint8_t hits[IrSweep::kLevels] = {};
+        uint8_t bursts = 0;
+        bool measured = false; // false until the first sweep is done
+        bool paused = false;
         int battery = -1; // percent, or -1 while unknown
 
         bool operator==(const Screen &other) const {
-            return seconds == other.seconds && battery == other.battery;
+            return state == other.state && marginDb10 == other.marginDb10 &&
+                   memcmp(hits, other.hits, sizeof(hits)) == 0 && bursts == other.bursts &&
+                   measured == other.measured && paused == other.paused &&
+                   battery == other.battery;
         }
     };
 

@@ -6,13 +6,22 @@ The firmware takes line commands (src/main.cpp, runCommand()):
     k1, k2      press KEY1 / KEY2
     acc         toggle accelerometer lines at 10 Hz: ax ay az in g
     st          one status line: board, display, battery, free RAM
-
-A project adds its own commands there and lists them here.
+    sw          one IR sweep now: "SW f= n= gap= noise= db= state= hits=..." with
+                the hits per power level, weakest first; noise= is how many of
+                8 blank bursts (LED off) were heard; state= is ok, noecho,
+                saturated or noisy
+    ir          toggle an "IR db= state= noise=" line after every sweep
+    freq <hz>   IR carrier frequency (38000 at start): "FREQ <actual>"
+    n <bursts>  bursts per power level, 1..32 (4 at start): "N <n>"
+    gap <us>    pause after every burst (15000 at start): "GAP <us>"
+    wave <lvl>  one burst at power level 0..23 and the receiver's output
+                every 20 us for 4 ms: "WAVE 1111000...", 0 = carrier heard
 
     PY=~/.platformio/penv/bin/python
     $PY tools/serial_cmd.py monitor 10
     $PY tools/serial_cmd.py snap screen.png
     $PY tools/serial_cmd.py send st --wait 2
+    $PY tools/serial_cmd.py send sw --wait 2
 
 The port is opened so that DTR/RTS never pass through the state that
 resets the chip (see open_port()). Only one program can hold the port:

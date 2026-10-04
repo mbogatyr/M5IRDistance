@@ -179,6 +179,46 @@ run at the same time.
 - The display backlight is the main consumer: `setBrightness(0)` and then
   `M5.Display.sleep()`.
 
+## Infrared
+
+The IR LED is on G46 and the IR receiver on G42, both at the top end of the
+stick (opposite the USB socket). Found on 2026-10-04 in this project, with
+`sw` and `wave` over serial and a sheet of white paper at measured distances.
+
+- Both are powered from EXT_5V: `M5.Power.setExtOutput(true)` after
+  `M5.begin()`. M5Stack's docs also say the speaker amplifier must be off for
+  the receiver to work; with `cfg.internal_spk = false` M5Unified leaves it
+  off. Not checked what happens with it on.
+- The receiver demodulates a 38 kHz carrier: its output is low while it
+  hears one, active low, with no information about the strength.
+- The carrier comes from LEDC (channel 0; the backlight takes channel 7).
+  With 10 bits of duty the board sets carriers only up to about 39 kHz:
+  40 kHz and up fail with "requested frequency and duty resolution can not
+  be achieved". Lower carriers make the receiver less sensitive (seen at 33
+  and 30 kHz with the board in hand; not measured properly yet).
+- `ledcReadFreq()` returns 0 while the duty is 0; keep the frequency that
+  `ledcSetup()` returns.
+- Answer to an 800 us burst (sampled every 20 us with `wave`): the output
+  goes low 150–400 us into the burst (later at full power) and comes back up
+  to 260 us after its end. A strong echo makes the gain control lift the
+  output for about 250 us in the middle of the burst, so a check at fixed
+  moments misses strong echoes; count the time low instead.
+- The gain control lowers the gain after every burst it hears and needs
+  about 15 ms to recover. With paper at 10 cm the margin read 15.9 dB with
+  1.6 ms gaps between bursts, 18.6 dB with 5 ms and 23.1 dB with 15, 30 and
+  60 ms.
+- Ambient IR passes for an echo: in a room the receiver sometimes reported
+  several pulses per 5 ms with the LED off, and they disappeared when the
+  person filming with an iPhone stepped away (the phone is suspected, not
+  proven). Send blank bursts with the LED off and distrust a sweep in which
+  any of them is "heard".
+- No leakage from the LED to the receiver inside the case: with nothing in
+  front, nothing is heard even at full power.
+- Echo margin from a sheet of white A4 paper, 15 ms gaps, 4 bursts a
+  level, 6 sweeps each: 5 cm 38.4 ± 1.0 dB, 10 cm 22.9 ± 0.3, 20 cm
+  13.9 ± 0.2, 40 cm 0.7 ± 0.4 (the limit). About 12 dB per doubling of the
+  distance on average, but not a straight line in log(distance).
+
 ## Storage
 
 - `default_8MB.csv`: NVS at 0x9000 (20 KB), otadata at 0xE000, two 3.2 MB app

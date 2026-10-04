@@ -3,6 +3,8 @@
 
 #include "BatteryFilter.h"
 #include "DisplayTimeout.h"
+#include "IrProbe.h"
+#include "IrSweep.h"
 #include "Orientation.h"
 #include "PickupDetector.h"
 #include "Renderer.h"
@@ -12,16 +14,31 @@ namespace {
 constexpr uint8_t kBrightness = 120;
 constexpr uint32_t kLoopMs = 20;           // 50 Hz
 constexpr uint32_t kBatteryPeriodMs = 5000; // the level changes slowly
+constexpr uint32_t kCarrierHz = 38000;      // what the receiver is tuned to
+constexpr uint8_t kBursts = 4;              // per power level
+constexpr uint8_t kBlankBursts = 8;         // with the LED off, per sweep
 
 Renderer renderer;
 DisplayTimeout displayTimeout;
 Orientation orientation(Orientation::Layout::Portrait);
 PickupDetector pickupDetector;
 BatteryFilter battery;
+IrProbe ir;
 
 bool displayAwake = true;
-uint32_t countFromMs = 0; // KEY1 restarts the count
+bool paused = false; // KEY1 stops and restarts the measuring
 int batteryShown = -1;
+
+// The sweep in progress: one power level is measured per pass of loop().
+uint8_t bursts = kBursts;
+uint8_t sweepHits[IrSweep::kLevels];
+int sweepLevel = 0;
+// The last finished sweep.
+uint8_t lastHits[IrSweep::kLevels];
+uint8_t lastBursts = 0;
+uint32_t lastNoise = 0;
+IrSweep::Result lastResult;
+bool measured = false;
 uint32_t batteryReadMs = 0;
 
 // Self-testing over serial: line commands, see CLAUDE.md.
@@ -30,6 +47,7 @@ size_t commandLength = 0;
 uint8_t pendingKeys = 0; // presses from k1 / k2: bit 0 KEY1, bit 1 KEY2
 bool accelOn = false;
 uint32_t accelPrintedMs = 0;
+bool irOn = false; // an IR line after every sweep
 
 void setDisplayAwake(bool awake) {
     if (awake == displayAwake) {
@@ -77,6 +95,64 @@ void printStatus() {
                   static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
 }
 
+const char *stateName(IrSweep::State state) {
+    switch (state) {
+    case IrSweep::State::Ok:
+        return "ok";
+    case IrSweep::State::Saturated:
+        return "saturated";
+    case IrSweep::State::Noisy:
+        return "noisy";
+    default:
+        return "noecho";
+    }
+}
+
+void printIr() {
+    Serial.printf("IR db=%.1f state=%s noise=%u\n", lastResult.marginDb,
+                  stateName(lastResult.state), static_cast<unsigned>(lastNoise));
+}
+
+void printSweep() {
+    Serial.printf("SW f=%u n=%u gap=%u noise=%u db=%.1f state=%s hits=",
+                  static_cast<unsigned>(ir.carrier()), lastBursts,
+                  static_cast<unsigned>(ir.gap()),
+                  static_cast<unsigned>(lastNoise), lastResult.marginDb,
+                  stateName(lastResult.state));
+    for (int i = 0; i < IrSweep::kLevels; ++i) {
+        Serial.printf(i == 0 ? "%u" : ",%u", lastHits[i]);
+    }
+    Serial.print('\n');
+}
+
+void finishSweep() {
+    memcpy(lastHits, sweepHits, sizeof(lastHits));
+    lastBursts = bursts;
+    // Blank bursts, judged like the real ones: ambient IR that would pass
+    // for an echo.
+    lastNoise = ir.hits(0, kBlankBursts);
+    lastResult = IrSweep::estimate(lastHits, lastBursts, static_cast<uint8_t>(lastNoise));
+    measured = true;
+    sweepLevel = 0;
+}
+
+// Measures the next power level; returns true when that finished a sweep.
+bool stepSweep() {
+    sweepHits[sweepLevel] = ir.hits(IrSweep::duty(sweepLevel), bursts);
+    if (++sweepLevel < IrSweep::kLevels) {
+        return false;
+    }
+    finishSweep();
+    return true;
+}
+
+// A whole sweep at once, about 1.6 s, whatever the display is doing.
+void fullSweep() {
+    sweepLevel = 0;
+    while (!stepSweep()) {
+    }
+}
+
 void runCommand(const char *line) {
     if (strcmp(line, "s") == 0) {
         renderer.writeSnapshot(Serial);
@@ -88,6 +164,30 @@ void runCommand(const char *line) {
         accelOn = !accelOn;
     } else if (strcmp(line, "st") == 0) {
         printStatus();
+    } else if (strcmp(line, "sw") == 0) {
+        fullSweep();
+        printSweep();
+    } else if (strcmp(line, "ir") == 0) {
+        irOn = !irOn;
+    } else if (strncmp(line, "freq ", 5) == 0) {
+        const uint32_t actual = ir.setCarrier(static_cast<uint32_t>(atol(line + 5)));
+        sweepLevel = 0;
+        Serial.printf("FREQ %u\n", static_cast<unsigned>(actual));
+    } else if (strncmp(line, "gap ", 4) == 0) {
+        ir.setGap(static_cast<uint32_t>(atol(line + 4)));
+        sweepLevel = 0;
+        Serial.printf("GAP %u\n", static_cast<unsigned>(ir.gap()));
+    } else if (strncmp(line, "wave ", 5) == 0) {
+        // 4 ms in 20 us steps; the burst is the first 0.8 ms.
+        static char samples[201];
+        ir.wave(IrSweep::duty(atoi(line + 5)), 20, samples, 200);
+        samples[200] = '\0';
+        Serial.printf("WAVE %s\n", samples);
+    } else if (strncmp(line, "n ", 2) == 0) {
+        const int n = atoi(line + 2);
+        bursts = static_cast<uint8_t>(n < 1 ? 1 : n > 32 ? 32 : n);
+        sweepLevel = 0;
+        Serial.printf("N %u\n", bursts);
     } else if (line[0] != '\0') {
         Serial.printf("ERR unknown '%s'\n", line);
     }
@@ -120,6 +220,9 @@ void printAccel(uint32_t now, float ax, float ay, float az) {
 
 void setup() {
     auto cfg = M5.config();
+    // The speaker amplifier disturbs the IR receiver; without the speaker
+    // M5Unified leaves the amplifier off.
+    cfg.internal_spk = false;
     M5.begin(cfg);
     // M5Unified leaves Serial alone (its serial_baudrate is 0 by default).
     Serial.begin(115200);
@@ -130,8 +233,10 @@ void setup() {
     }
 
     const uint32_t now = millis();
+    ir.begin(kCarrierHz);
+    Serial.printf("IR carrier %u Hz\n", static_cast<unsigned>(ir.carrier()));
+
     displayTimeout.begin(now);
-    countFromMs = now;
     readBattery(now, true);
 }
 
@@ -161,18 +266,38 @@ void loop() {
     if (displayAwake) {
         // A press that wakes the display only wakes it.
         if (wasAwake && key1) {
-            countFromMs = now;
+            paused = !paused;
+            sweepLevel = 0;
         }
         if (haveAccel) {
             renderer.setFlipped(orientation.update(now, ax, ay, az));
         }
         readBattery(now, false);
-        renderer.draw({(now - countFromMs) / 1000, batteryShown});
+    }
+
+    // Measuring keeps the LED busy, so it runs only while someone looks at
+    // the display; the serial `sw` measures at any time.
+    const bool measuring = displayAwake && !paused;
+    if (measuring && stepSweep() && irOn && serialHasRoom()) {
+        printIr();
+    }
+
+    if (displayAwake) {
+        Renderer::Screen screen;
+        screen.state = lastResult.state;
+        screen.marginDb10 = static_cast<int>(lastResult.marginDb * 10 + 0.5f);
+        memcpy(screen.hits, lastHits, sizeof(screen.hits));
+        screen.bursts = lastBursts;
+        screen.measured = measured;
+        screen.paused = paused;
+        screen.battery = batteryShown;
+        renderer.draw(screen);
     }
 
     if (haveAccel) {
         printAccel(now, ax, ay, az);
     }
 
-    delay(kLoopMs);
+    // A power level takes about 65 ms, which paces the loop by itself.
+    delay(measuring ? 1 : kLoopMs);
 }
