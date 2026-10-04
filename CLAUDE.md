@@ -10,7 +10,8 @@ centimetres with calibration points measured at known distances. Works from
 about 5 to 40 cm on white paper; see README.md for the measurements and
 docs/StickS3.md, "Infrared", for what was found about the receiver.
 
-Repository: not published yet. Made from the M5Template project template.
+Repository: https://github.com/mbogatyr/M5IRDistance (made from the
+M5Template project template).
 
 Knowledge about the board that is not needed in every session (audio, IMU,
 memory and speed, power, storage, radio, tools) is in
