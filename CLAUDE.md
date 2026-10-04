@@ -25,13 +25,15 @@ conversation with the user happens in another language.
 1. Copy the folder without `.git/` (the template's own history) and `.pio/`
    (the build cache).
 2. `git init`.
-3. Change the project name in the first line of `platformio.ini` and in
+3. Replace `README.md` (which describes the template) with
+   `docs/README.template.md`: `mv docs/README.template.md README.md`.
+4. Change the project name in the first line of `platformio.ini` and in
    `README.md`, rewrite the description at the top of this file, replace the
    `Repository:` line with the project's GitHub link once there is one, and
    delete this section.
-4. Delete the `lib/` modules the project does not need, together with their
+5. Delete the `lib/` modules the project does not need, together with their
    `test/test_<module>` folders and their lines in `src/main.cpp`.
-5. Fill in `README.md` and, before publishing, `docs/m5burner.md`. `LICENSE`
+6. Fill in `README.md` and, before publishing, `docs/m5burner.md`. `LICENSE`
    is MIT; change it if the project needs another one.
 
 ## Commands
