@@ -6,14 +6,24 @@ The firmware takes line commands (src/main.cpp, runCommand()):
     k1, k2      press KEY1 / KEY2
     acc         toggle accelerometer lines at 10 Hz: ax ay az in g
     st          one status line: board, display, battery, free RAM
-    sw          one IR sweep now: "SW f= n= gap= noise= db= state= hits=..." with
-                the hits per power level, weakest first; noise= is how many of
-                8 blank bursts (LED off) were heard; state= is ok, noecho,
-                saturated or noisy
-    ir          toggle an "IR db= state= noise=" line after every sweep
+    sw          one full IR sweep now: "SW f= n= gap= noise= db= state= cm= ext=
+                hits=..." with the hits per power level, weakest first;
+                noise= is how many of 8 blank bursts (LED off) were heard;
+                state= is ok, noecho, saturated or noisy; cm= is -1 without a
+                calibration, ext=1 outside the calibrated distances
+    ir          toggle an "IR db= state= cm= ext= noise= ms=" line after every
+                sweep; ms= is how long the sweep took
+    cal <cm>    5 clean sweeps averaged into a calibration point at that
+                distance, kept in flash: "CAL cm= db= sd= points=" or "ERR cal"
+    demo <db>   pause measuring and show a made-up sweep with that margin
+                (for screenshots); k1 resumes: "DEMO db= cm= ext="
+    calset <cm> <db>  store a point measured earlier, as cal answers
+    callist     the calibration points: "CALP cm= db=" lines, then "CALN <n>"
+    calclr      forget all calibration points
     freq <hz>   IR carrier frequency (38000 at start): "FREQ <actual>"
     n <bursts>  bursts per power level, 1..32 (4 at start): "N <n>"
-    gap <us>    pause after every burst (15000 at start): "GAP <us>"
+    gap <us> [<us>]  pause after a heard burst and after a missed one
+                (15000 both at start): "GAP <heard> <missed>"
     wave <lvl>  one burst at power level 0..23 and the receiver's output
                 every 20 us for 4 ms: "WAVE 1111000...", 0 = carrier heard
 

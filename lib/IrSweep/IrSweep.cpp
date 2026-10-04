@@ -50,6 +50,7 @@ IrSweep::Result IrSweep::estimateHits(const uint8_t hits[kLevels], uint8_t burst
     if (heard(0)) {
         result.state = State::Saturated;
         result.marginDb = -levelDb(0);
+        result.level = 0;
         return result;
     }
 
@@ -71,5 +72,48 @@ IrSweep::Result IrSweep::estimateHits(const uint8_t hits[kLevels], uint8_t burst
 
     result.state = State::Ok;
     result.marginDb = -db;
+    result.level = x;
     return result;
+}
+
+IrSweep::Window IrSweep::around(const Result &last) {
+    Window window;
+    int center;
+    switch (last.state) {
+    case State::Ok:
+        center = static_cast<int>(last.level + 0.5f);
+        break;
+    case State::Saturated:
+        center = 0;
+        break;
+    case State::NoEcho:
+        center = kLevels - 1;
+        break;
+    default:
+        return window; // Noisy: start over
+    }
+    window.first = center - kHalfWindow < 0 ? 0 : center - kHalfWindow;
+    window.last = center + kHalfWindow > kLevels - 1 ? kLevels - 1 : center + kHalfWindow;
+    // Near an end of the scale the window keeps its width.
+    if (window.first == 0) {
+        window.last = 2 * kHalfWindow;
+    } else if (window.last == kLevels - 1) {
+        window.first = kLevels - 1 - 2 * kHalfWindow;
+    }
+    return window;
+}
+
+bool IrSweep::contains(const uint8_t hits[kLevels], uint8_t bursts, Window window) {
+    const bool lowestHeard = 2u * hits[window.first] >= bursts;
+    const bool highestHeard = 2u * hits[window.last] >= bursts;
+    return (window.first == 0 || !lowestHeard) && (window.last == kLevels - 1 || highestHeard);
+}
+
+void IrSweep::fill(uint8_t hits[kLevels], uint8_t bursts, Window window) {
+    for (int i = 0; i < window.first; ++i) {
+        hits[i] = 0;
+    }
+    for (int i = window.last + 1; i < kLevels; ++i) {
+        hits[i] = bursts;
+    }
 }

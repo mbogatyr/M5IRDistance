@@ -67,35 +67,49 @@ void Renderer::paint(const Screen &screen) {
 
     canvas_.setFont(&fonts::Font2);
     canvas_.setTextColor(TFT_DARKGREY);
-    canvas_.drawString("IR echo margin", centerX, 14);
+    canvas_.drawString("IR range", centerX, 14);
 
-    // The margin, or what stands in for it.
-    if (!screen.measured) {
+    char margin[16];
+    snprintf(margin, sizeof(margin), "%d.%d dB", screen.marginDb10 / 10, screen.marginDb10 % 10);
+
+    // A word instead of a number.
+    const auto say = [&](const char *text, uint16_t color) {
         canvas_.setFont(&fonts::Font4);
-        canvas_.setTextColor(TFT_DARKGREY);
-        canvas_.drawString("...", centerX, 70);
-    } else if (screen.state == IrSweep::State::NoEcho) {
-        canvas_.setFont(&fonts::Font4);
-        canvas_.setTextColor(TFT_SKYBLUE);
-        canvas_.drawString("NO ECHO", centerX, 70);
-    } else if (screen.state == IrSweep::State::Noisy) {
-        canvas_.setFont(&fonts::Font4);
-        canvas_.setTextColor(TFT_YELLOW);
-        canvas_.drawString("IR NOISE", centerX, 70);
-    } else {
+        canvas_.setTextColor(color);
+        canvas_.drawString(text, centerX, 70);
+    };
+    // The big number and the small lines under it.
+    const auto number = [&](int tenths, uint16_t color, const char *unit, const char *note) {
         char text[12];
-        snprintf(text, sizeof(text), "%d.%d", screen.marginDb10 / 10, screen.marginDb10 % 10);
+        snprintf(text, sizeof(text), "%d.%d", tenths / 10, tenths % 10);
         canvas_.setFont(&fonts::Font7);
-        canvas_.setTextColor(screen.state == IrSweep::State::Saturated ? TFT_ORANGE : TFT_WHITE);
-        canvas_.drawString(text, centerX, 66);
-    }
-    const bool number = screen.measured && (screen.state == IrSweep::State::Ok ||
-                                            screen.state == IrSweep::State::Saturated);
-    if (number) {
+        canvas_.setTextColor(color);
+        canvas_.drawString(text, centerX, 64);
         canvas_.setFont(&fonts::Font2);
         canvas_.setTextColor(TFT_DARKGREY);
-        canvas_.drawString(screen.state == IrSweep::State::Saturated ? "dB  SATURATED" : "dB",
-                           centerX, 108);
+        canvas_.drawString(unit, centerX, 102);
+        if (note != nullptr) {
+            canvas_.drawString(note, centerX, 120);
+        }
+    };
+
+    if (!screen.measured) {
+        say("...", TFT_DARKGREY);
+    } else if (screen.state == IrSweep::State::NoEcho) {
+        say("NO ECHO", TFT_SKYBLUE);
+    } else if (screen.state == IrSweep::State::Noisy) {
+        say("IR NOISE", TFT_YELLOW);
+    } else if (screen.state == IrSweep::State::Saturated) {
+        say("TOO NEAR", TFT_ORANGE);
+        canvas_.setFont(&fonts::Font2);
+        canvas_.setTextColor(TFT_DARKGREY);
+        canvas_.drawString(margin, centerX, 102);
+    } else if (screen.cm10 >= 0) {
+        // Outside the calibrated distances it is a guess: orange.
+        number(screen.cm10, screen.extrapolated ? TFT_ORANGE : TFT_WHITE,
+               screen.extrapolated ? "cm, extrapolated" : "cm", margin);
+    } else {
+        number(screen.marginDb10, TFT_WHITE, "dB", screen.calibrated ? nullptr : "not calibrated");
     }
 
     // One bar per power level, weakest on the left; full height when every

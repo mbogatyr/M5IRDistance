@@ -217,7 +217,19 @@ stick (opposite the USB socket). Found on 2026-10-04 in this project, with
 - Echo margin from a sheet of white A4 paper, 15 ms gaps, 4 bursts a
   level, 6 sweeps each: 5 cm 38.4 ± 1.0 dB, 10 cm 22.9 ± 0.3, 20 cm
   13.9 ± 0.2, 40 cm 0.7 ± 0.4 (the limit). About 12 dB per doubling of the
-  distance on average, but not a straight line in log(distance).
+  distance on average, but not a straight line in log(distance). The raw
+  sweeps are in `docs/data/2026-10-04-white-paper.csv` (its 0 cm rows were
+  taken while the suspected phone was close by: they are the noise above).
+- A sheet held in the hand is not a usable target: later the same day,
+  hand-held at 10 cm, the margin wandered between 9 and 20 dB from sweep to
+  sweep, and a calibration taken that way was 15 dB below the table above.
+  At 10 cm a 5 mm shift alone is about 1 dB, and tilting the sheet changes
+  the echo more. Calibrate with a target that stands on its own.
+- Not settled: whether the gain control also reacts to a carrier too weak
+  to be heard. A 2 ms gap after an unheard burst (instead of 15 ms) made
+  sweeps 2.5 times faster and looked 1-2 dB less sensitive, but only with a
+  hand-held target. The firmware keeps 15 ms after every burst, as in the
+  calibration.
 
 ## Storage
 

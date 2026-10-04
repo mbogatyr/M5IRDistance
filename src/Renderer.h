@@ -10,7 +10,8 @@
 // The whole frame is composed in a sprite and pushed in a single call:
 // drawing directly on the screen causes noticeable flicker.
 //
-// Shows the last IR sweep: the margin in dB (how much weaker than full power
+// Shows the last IR sweep: the distance once the range finder is
+// calibrated, otherwise the margin in dB (how much weaker than full power
 // the echo is still heard), and a bar per power level with how many of its
 // bursts were heard, weakest on the left.
 class Renderer {
@@ -21,6 +22,9 @@ class Renderer {
         int marginDb10 = 0; // tenths of a dB
         uint8_t hits[IrSweep::kLevels] = {};
         uint8_t bursts = 0;
+        int cm10 = -1;         // tenths of a cm, or -1 without a distance
+        bool extrapolated = false;
+        bool calibrated = false;
         bool measured = false; // false until the first sweep is done
         bool paused = false;
         int battery = -1; // percent, or -1 while unknown
@@ -28,7 +32,9 @@ class Renderer {
         bool operator==(const Screen &other) const {
             return state == other.state && marginDb10 == other.marginDb10 &&
                    memcmp(hits, other.hits, sizeof(hits)) == 0 && bursts == other.bursts &&
-                   measured == other.measured && paused == other.paused &&
+                   cm10 == other.cm10 && extrapolated == other.extrapolated &&
+                   calibrated == other.calibrated && measured == other.measured &&
+                   paused == other.paused &&
                    battery == other.battery;
         }
     };

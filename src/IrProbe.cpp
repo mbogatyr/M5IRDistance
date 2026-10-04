@@ -83,7 +83,7 @@ bool IrProbe::burst(uint32_t duty) {
     }
     const bool heard =
         lowSamples * kSampleStepUs >= kMinLowUs && digitalRead(kRxPin) == HIGH;
-    delayMicroseconds(gapUs_);
+    delayMicroseconds(heard ? gapUs_ : missGapUs_);
     return heard;
 }
 

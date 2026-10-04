@@ -2,11 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Project template for the M5StickS3. For now the firmware only shows the time
-since power-on and the battery level on the screen; it is a placeholder that
-the project's logic replaces.
+M5IRDistance: an experiment in using the M5StickS3's built-in IR LED and
+IR receiver as a range finder. The receiver only reports whether it hears a
+38 kHz carrier, so the firmware sweeps the transmit power, finds the weakest
+power whose echo is still heard (the echo margin in dB) and turns that into
+centimetres with calibration points measured at known distances. Works from
+about 5 to 40 cm on white paper; see README.md for the measurements and
+docs/StickS3.md, "Infrared", for what was found about the receiver.
 
-Repository: https://github.com/mbogatyr/M5Template
+Repository: not published yet. Made from the M5Template project template.
 
 Knowledge about the board that is not needed in every session (audio, IMU,
 memory and speed, power, storage, radio, tools) is in
@@ -19,22 +23,6 @@ All documentation and the project itself are kept in English: this file, code
 comments, identifiers, strings shown on the display, commit messages and any
 other text files. New text is written in English too, even when the
 conversation with the user happens in another language.
-
-## New project from the template
-
-1. Copy the folder without `.git/` (the template's own history) and `.pio/`
-   (the build cache).
-2. `git init`.
-3. Replace `README.md` (which describes the template) with
-   `docs/README.template.md`: `mv docs/README.template.md README.md`.
-4. Change the project name in the first line of `platformio.ini` and in
-   `README.md`, rewrite the description at the top of this file, replace the
-   `Repository:` line with the project's GitHub link once there is one, and
-   delete this section.
-5. Delete the `lib/` modules the project does not need, together with their
-   `test/test_<module>` folders and their lines in `src/main.cpp`.
-6. Fill in `README.md` and, before publishing, `docs/m5burner.md`. `LICENSE`
-   is MIT; change it if the project needs another one.
 
 ## Commands
 
@@ -113,9 +101,17 @@ filter) goes into `lib/` and is tested there; `src/` stays thin.
 
 - `IrSweep` holds the 24 transmit powers (carrier duty from 1/1024 to 1/2,
   50 dB) and turns the hits of one sweep into the echo margin in dB, or
-  `NoEcho`, `Saturated`, `Noisy`. `src/IrProbe` sends the bursts and reads
-  the receiver; what was found about the IR parts is in docs/StickS3.md,
+  `NoEcho`, `Saturated`, `Noisy`. It also picks the window of levels the
+  next sweep measures (3 either side of the last threshold) and notices when
+  the threshold has left it. `src/IrProbe` sends the bursts and reads the
+  receiver; what was found about the IR parts is in docs/StickS3.md,
   "Infrared".
+- `RangeCalibration` turns a margin into cm from up to 8 points (cm, dB),
+  joined by straight segments in log(cm). `main.cpp` keeps the points in NVS
+  (namespace `ircal`, key `points`). The calibration only holds for the
+  surface it was measured with, and the target must stand still while
+  calibrating: a hand-held sheet spread the margin by several dB.
+  `tools/ir_calibrate.py` runs the calibration.
 
 ### Time is passed in as a parameter
 
@@ -136,9 +132,10 @@ be minutes long.
 
 ### The loop
 
-`loop()` runs at 50 Hz (`delay(20)`). A project that animates every frame
-drops the delay while something moves and lets the drawing pace the loop;
-it keeps the 50 Hz delay while idle and while the display is off.
+`loop()` runs at 50 Hz (`delay(20)`) while it does not measure. While it
+measures, each pass sends the bursts of one power level (about 65 ms), which
+paces the loop instead; the delay drops to 1 ms. Commands that sweep (`sw`,
+`cal`) block the loop for up to 1.8 s a sweep.
 
 Buttons are read with `wasPressed()` for actions and `isPressed()` for
 activity. **A press that wakes the display only wakes it**: the action runs
@@ -160,7 +157,7 @@ compares it with the previous one and returns if nothing has changed.
 up, because the panel's contents are lost during sleep. A project that
 animates continuously drops the comparison.
 
-The template is portrait (`setRotation(0)`, KEY1 below the screen;
+The firmware is portrait (`setRotation(0)`, KEY1 below the screen;
 `setRotation(2)` is the same upside down). For landscape use 1 and 3 and
 `Orientation::Layout::Landscape`; the details are in docs/StickS3.md.
 
@@ -250,10 +247,14 @@ look at the screen. `main.cpp` takes line commands over serial, and
 | `k1`, `k2` | a press of KEY1 / KEY2, the same path as the real button |
 | `acc` | toggles `ACC ax ay az flipped=` lines at 10 Hz |
 | `st` | `ST board= awake= flipped= battery= internal= psram=` |
-| `sw` | one IR sweep now: `SW f= n= gap= noise= db= state= hits=...` |
-| `ir` | toggles an `IR db= state= noise=` line after every sweep |
-| `freq <hz>`, `n <bursts>`, `gap <us>` | IR carrier, bursts per level, pause after a burst |
+| `sw` | one full IR sweep now: `SW f= n= gap= noise= db= state= cm= ext= hits=...` |
+| `ir` | toggles an `IR db= state= cm= ext= noise= ms=` line after every sweep |
+| `cal <cm>` | 5 clean full sweeps averaged into a calibration point: `CAL cm= db= sd= points=` |
+| `calset <cm> <db>` | stores a point measured earlier, answers like `cal` |
+| `callist`, `calclr` | `CALP cm= db=` lines and `CALN <n>`; `calclr` forgets all points |
+| `freq <hz>`, `n <bursts>`, `gap <us> [<us>]` | IR carrier, bursts per level, pause after a heard / missed burst |
 | `wave <level>` | one burst and the receiver's output every 20 us: `WAVE 111000...` |
+| `demo <db>` | pauses and shows a made-up sweep with that margin, for screenshots; KEY1 resumes |
 | anything else | `ERR unknown '<line>'` |
 
 A project adds its own commands to `runCommand()` and the list in

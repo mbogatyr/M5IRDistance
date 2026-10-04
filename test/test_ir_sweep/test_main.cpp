@@ -123,6 +123,80 @@ void test_noise_overrides_no_echo_too(void) {
     TEST_ASSERT_TRUE(IrSweep::estimate(hits, 8, 2).state == IrSweep::State::Noisy);
 }
 
+// The clean step at 12 puts the point at 11.5, which rounds to 12:
+// levels 9..15.
+void test_the_window_is_centred_on_the_threshold(void) {
+    static uint8_t hits[IrSweep::kLevels];
+    step(hits, 12);
+    const IrSweep::Window w = IrSweep::around(IrSweep::estimate(hits, 8));
+    TEST_ASSERT_EQUAL_INT(9, w.first);
+    TEST_ASSERT_EQUAL_INT(15, w.last);
+    TEST_ASSERT_FALSE(w.full());
+}
+
+void test_the_window_keeps_its_width_at_the_ends(void) {
+    static uint8_t hits[IrSweep::kLevels];
+    step(hits, 0); // saturated
+    IrSweep::Window w = IrSweep::around(IrSweep::estimate(hits, 8));
+    TEST_ASSERT_EQUAL_INT(0, w.first);
+    TEST_ASSERT_EQUAL_INT(6, w.last);
+
+    step(hits, IrSweep::kLevels); // no echo
+    w = IrSweep::around(IrSweep::estimate(hits, 8));
+    TEST_ASSERT_EQUAL_INT(17, w.first);
+    TEST_ASSERT_EQUAL_INT(23, w.last);
+}
+
+void test_noise_widens_the_window_to_all_levels(void) {
+    static uint8_t hits[IrSweep::kLevels];
+    step(hits, 12);
+    TEST_ASSERT_TRUE(IrSweep::around(IrSweep::estimate(hits, 8, 1)).full());
+}
+
+// Only levels 9..15 measured, with the step at 12: the rest is filled in
+// and the margin is the full sweep's 23.11 dB.
+void test_a_window_sweep_matches_the_full_one(void) {
+    static uint8_t hits[IrSweep::kLevels];
+    step(hits, 12);
+    IrSweep::Window w;
+    w.first = 9;
+    w.last = 15;
+    for (int i = 0; i < IrSweep::kLevels; ++i) {
+        if (i < w.first || i > w.last) {
+            hits[i] = 99; // not measured
+        }
+    }
+    TEST_ASSERT_TRUE(IrSweep::contains(hits, 8, w));
+    IrSweep::fill(hits, 8, w);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, 23.11f, IrSweep::estimate(hits, 8).marginDb);
+}
+
+// The target came closer: the whole window is heard, so the threshold is
+// below it; and it went away: nothing in the window is heard.
+void test_a_threshold_outside_the_window_is_noticed(void) {
+    static uint8_t hits[IrSweep::kLevels];
+    IrSweep::Window w;
+    w.first = 9;
+    w.last = 15;
+    step(hits, 5);
+    TEST_ASSERT_FALSE(IrSweep::contains(hits, 8, w));
+    step(hits, 20);
+    TEST_ASSERT_FALSE(IrSweep::contains(hits, 8, w));
+}
+
+void test_the_ends_of_the_scale_are_inside_a_window_there(void) {
+    static uint8_t hits[IrSweep::kLevels];
+    IrSweep::Window w;
+    w.first = 0;
+    w.last = 6;
+    step(hits, 0); // still saturated
+    TEST_ASSERT_TRUE(IrSweep::contains(hits, 8, w));
+    w.first = 17;
+    w.last = 23;
+    step(hits, IrSweep::kLevels); // still no echo
+    TEST_ASSERT_TRUE(IrSweep::contains(hits, 8, w));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
 
@@ -139,6 +213,12 @@ int main(int, char **) {
     RUN_TEST(test_no_bursts_is_no_echo);
     RUN_TEST(test_a_false_hit_makes_the_sweep_noisy);
     RUN_TEST(test_noise_overrides_no_echo_too);
+    RUN_TEST(test_the_window_is_centred_on_the_threshold);
+    RUN_TEST(test_the_window_keeps_its_width_at_the_ends);
+    RUN_TEST(test_noise_widens_the_window_to_all_levels);
+    RUN_TEST(test_a_window_sweep_matches_the_full_one);
+    RUN_TEST(test_a_threshold_outside_the_window_is_noticed);
+    RUN_TEST(test_the_ends_of_the_scale_are_inside_a_window_there);
 
     return UNITY_END();
 }

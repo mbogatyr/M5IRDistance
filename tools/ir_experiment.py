@@ -4,14 +4,17 @@ For every distance the target (a sheet of white paper, say) is placed that
 far from the IR end of the stick, and the script takes a number of `sw`
 sweeps and appends them to a CSV file:
 
-    cm, sweep, db, state, noise, carrier, bursts, gap, h0 .. h23
+    cm, sweep, db, state, est_cm, ext, noise, carrier, bursts, gap, h0 .. h23
 
-At the end it prints the mean and spread of the margin per distance.
+est_cm is the board's own distance estimate (-1 before it is calibrated).
+At the end it prints the mean and spread of the margin and of the estimate
+per distance. This is for studying the raw sweeps; tools/ir_calibrate.py
+calibrates the board.
 
     PY=~/.platformio/penv/bin/python
-    $PY tools/ir_experiment.py ir.csv 5 10 20 40        # asks before each distance
-    $PY tools/ir_experiment.py ir.csv 15 --no-prompt    # measures right away
-    $PY tools/ir_experiment.py ir.csv --summary         # only prints the summary
+    $PY tools/ir_experiment.py ir.csv 5 10 20 40         # asks before each distance
+    $PY tools/ir_experiment.py ir.csv 15 --no-prompt     # measures right away
+    $PY tools/ir_experiment.py ir.csv --summary          # only prints the summary
 
 A distance of 0 stands for "nothing in front": the stick looking into an
 empty room.
@@ -41,6 +44,8 @@ def sweep(link, reader):
     return {
         "db": float(fields["db"]),
         "state": fields["state"],
+        "cm": float(fields["cm"]),
+        "ext": int(fields["ext"]),
         "noise": int(fields["noise"]),
         "carrier": int(fields["f"]),
         "bursts": int(fields["n"]),
@@ -54,16 +59,18 @@ def record(path, cm, sweeps, link, reader):
     with open(path, "a", newline="") as f:
         out = csv.writer(f)
         if new:
-            out.writerow(["cm", "sweep", "db", "state", "noise", "carrier", "bursts", "gap"]
+            out.writerow(["cm", "sweep", "db", "state", "est_cm", "ext", "noise", "carrier",
+                          "bursts", "gap"]
                          + ["h%d" % i for i in range(LEVELS)])
         for i in range(sweeps):
             s = sweep(link, reader)
             if s is None:
                 print("  no answer from the board")
                 continue
-            out.writerow([cm, i, s["db"], s["state"], s["noise"], s["carrier"], s["bursts"], s["gap"]]
-                         + s["hits"])
-            print("  %5.1f dB  %s" % (s["db"], s["state"]))
+            out.writerow([cm, i, s["db"], s["state"], s["cm"], s["ext"], s["noise"],
+                          s["carrier"], s["bursts"], s["gap"]] + s["hits"])
+            estimate = "" if s["cm"] < 0 else "  %5.1f cm%s" % (s["cm"], " (ext)" if s["ext"] else "")
+            print("  %5.1f dB  %s%s" % (s["db"], s["state"], estimate))
 
 
 def summary(path):
@@ -71,7 +78,7 @@ def summary(path):
     with open(path) as f:
         for row in csv.DictReader(f):
             by_cm.setdefault(float(row["cm"]), []).append(row)
-    print("   cm   n   mean dB  stdev  min   max   states")
+    print("   cm   n   mean dB  stdev  min   max   est cm  stdev  states")
     for cm in sorted(by_cm):
         rows = by_cm[cm]
         dbs = [float(r["db"]) for r in rows]
@@ -79,8 +86,11 @@ def summary(path):
         for r in rows:
             states[r["state"]] = states.get(r["state"], 0) + 1
         spread = statistics.stdev(dbs) if len(dbs) > 1 else 0.0
-        print("%5g  %2d   %6.1f   %5.1f  %5.1f %5.1f  %s" % (
-            cm, len(rows), statistics.mean(dbs), spread, min(dbs), max(dbs),
+        ests = [float(r["est_cm"]) for r in rows if float(r.get("est_cm") or -1) >= 0]
+        est = "%6.1f  %5.1f" % (statistics.mean(ests), statistics.stdev(ests) if len(ests) > 1 else 0.0) \
+            if ests else "     -      -"
+        print("%5g  %2d   %6.1f   %5.1f  %5.1f %5.1f  %s  %s" % (
+            cm, len(rows), statistics.mean(dbs), spread, min(dbs), max(dbs), est,
             " ".join("%s:%d" % kv for kv in sorted(states.items()))))
 
 

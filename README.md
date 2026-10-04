@@ -1,166 +1,182 @@
-# M5Template
+# M5IRDistance
 
-A starting point for [M5StickS3](https://docs.m5stack.com/en/core/StickS3)
-firmware with PlatformIO and M5Unified. It builds and runs as is, and it
-carries what earlier StickS3 projects found out about the board: build
-settings that are easy to get wrong, self-testing over USB, the M5Burner
-image, and a reference of hardware quirks.
+An experiment: turning the IR LED and IR receiver built into the
+[M5StickS3](https://docs.m5stack.com/en/core/StickS3) into a range finder
+that shows the distance to an object in front of the stick, in centimetres.
 
 <p align="center">
-  <img src="docs/screenshot.png" width="270" alt="The placeholder screen: M5StickS3, seconds since power-on, battery percentage">
+  <img src="docs/screenshot.png" width="270" alt="14.1 cm, an echo margin of 18.4 dB, and bars showing which transmit powers were heard">
 </p>
 
-The placeholder firmware shows the time since power-on and the battery
-level. Your project replaces it.
+The screenshot is taken from the device itself over USB
+(`tools/serial_cmd.py snap`), scaled up 3x; this one is a made-up sweep
+(`demo 18.4`).
 
-## What you get
+## What it can do
 
-- **Build settings that work.** The board is built as C++17 (the framework
-  silently forces C++11 otherwise) with `-O2`, octal PSRAM and the 8 MB
-  partitions; the USB port is pinned so PlatformIO never picks the Bluetooth
-  one.
-- **A firmware skeleton.** The frame is composed in a sprite and pushed at
-  once, without flicker, and only when something changed. The screen goes
-  dark after 3 minutes without use, wakes on a key press or when the stick is
-  picked up, and turns over when the stick is held upside down. A press that
-  wakes the screen only wakes it.
-- **Logic tested on the computer.** Everything in `lib/` is plain C++ with
-  unit tests that run on the Mac in seconds, without the board.
-- **Self-testing over USB.** The firmware answers line commands: a
-  screenshot, simulated key presses, accelerometer and status lines.
-  `tools/serial_cmd.py` sends them and saves screenshots as PNG, without
-  resetting the board.
-- **A single image for M5Burner** (`-t merged`), with a checklist for
-  publishing.
-- **Documentation for people and for Claude Code.** `CLAUDE.md` holds the
-  rules and commands, `docs/StickS3.md` the board reference.
+Measured on 2026-10-04 with a sheet of white A4 paper facing the IR end of
+the stick:
 
-## Requirements
+| Distance | Echo margin | Spread (6 sweeps) |
+|---|---|---|
+| 5 cm | 38.4 dB | ± 1.0 |
+| 10 cm | 22.9 dB | ± 0.3 |
+| 20 cm | 13.9 dB | ± 0.2 |
+| 40 cm | 0.7 dB | ± 0.4, the limit |
+| nothing | no echo | |
 
-- An M5StickS3 and a USB-C cable.
-- [PlatformIO](https://platformio.org/), installed with the official
-  installer. The commands below use its path,
-  `~/.platformio/penv/bin/pio`; use plain `pio` if it is on your `PATH`. The
-  first build downloads the ESP32-S3 toolchain (several minutes, once per
-  machine).
-- macOS: port names and the tools assume it. Elsewhere the code builds the
-  same, but the port is not `/dev/cu.usbmodem*`.
-- Optional: [Claude Code](https://claude.com/claude-code). It reads
-  `CLAUDE.md` and can do everything below, including flashing the board and
-  checking the result with screenshots.
+So it works from about 5 to 40 cm on white paper. Things to know:
 
-## Start a new project
+- It measures how bright the echo is, not how long the light takes, so the
+  distance is only right for the surface it was calibrated with. A darker
+  or smaller object reads as farther away.
+- The target must stand still. At 10 cm a 5 mm shift changes the margin by
+  about 1 dB, and a sheet held in the hand spread the readings by several
+  dB.
+- Other IR sources confuse the receiver. A phone close by (its camera or
+  face sensors, most likely) produced pulses that passed for echoes; the
+  firmware notices them and shows `IR NOISE` instead of a distance.
+- The distance shown has not yet been checked against distances outside
+  the calibration points. Run `tools/ir_calibrate.py check` (below).
 
-```bash
-git clone https://github.com/mbogatyr/M5Template.git M5MyProject
-cd M5MyProject
-rm -rf .git && git init
-mv docs/README.template.md README.md
-```
+## Features
 
-Then:
+- The distance in cm once the stick is calibrated, otherwise the echo margin
+  in dB. Orange means outside the calibrated distances (extrapolated).
+  `NO ECHO` when nothing is heard even at full power, `TOO NEAR` when the
+  echo is heard even at the weakest power, `IR NOISE` when the receiver
+  hears IR with the LED off.
+- Bars at the bottom: one per transmit power, weakest on the left, as high
+  as the share of bursts the receiver heard.
+- A reading every 0.6 s while the target stands still (a full sweep takes
+  1.8 s).
+- Calibration points are kept in flash and survive power-off.
+- The screen goes dark after 3 minutes without use and wakes up on a key
+  press or when the stick is picked up; measuring stops while it is dark.
+  Held upside down, the picture turns over.
 
-1. Put the project's name in the first line of `platformio.ini` and in
-   `README.md`.
-2. Rewrite the description at the top of `CLAUDE.md`, replace its
-   `Repository:` line and delete its "New project from the template"
-   section.
-3. Delete the `lib/` modules you don't need, with their `test/test_<module>`
-   folders and their lines in `src/main.cpp`.
-4. Check that it builds and the tests pass (see below), then make the first
-   commit.
+## Controls
 
-With Claude Code it is enough to open the template's folder and ask for a
-new project: the steps are in `CLAUDE.md`.
+Point the top end of the stick (opposite the USB socket) at the target.
 
-## Everyday commands
+| Button | Where | What it does |
+|---|---|---|
+| KEY1 | blue, on the front, below the screen | pause / resume measuring |
+| KEY2 | on the edge | nothing yet (wakes the screen) |
+| Side button | handled by the power chip, not the firmware | press: on / reset, double press: off, hold: download mode |
 
-```bash
-~/.platformio/penv/bin/pio test -e native              # unit tests for lib/ on the computer
-~/.platformio/penv/bin/pio run -e sticks3              # build the firmware
-~/.platformio/penv/bin/pio run -e sticks3 -t upload    # build and flash over USB
-~/.platformio/penv/bin/pio device monitor -e sticks3   # serial log, 115200 baud
-```
+When the screen has gone dark, the first press only wakes it.
 
-Self-testing on the board:
+## Calibrating
+
+The board must be connected over USB. The target (a sheet of paper taped
+upright to a book or a box) stands on the table at measured distances from
+the IR end, with nothing else in the beam: hands, phones and people out of
+the way.
 
 ```bash
-PY=~/.platformio/penv/bin/python
-$PY tools/serial_cmd.py snap screen.png    # screenshot, scaled up 3x
-$PY tools/serial_cmd.py send st            # status: board, display, battery, free RAM
-$PY tools/serial_cmd.py send k1            # press KEY1 (k2 for KEY2)
-$PY tools/serial_cmd.py send acc --wait 3  # accelerometer lines (send again to stop)
-$PY tools/serial_cmd.py monitor 10         # print what the board says
+~/.platformio/penv/bin/python tools/ir_calibrate.py measure            # 5, 10, 20, 40 cm
+~/.platformio/penv/bin/python tools/ir_calibrate.py check 7 15 30      # compare with the truth
+~/.platformio/penv/bin/python tools/ir_calibrate.py list
 ```
 
-Only one program can hold the port: stop `pio device monitor` before
-flashing or running `serial_cmd.py`. Add your own commands to `runCommand()`
-in `src/main.cpp`.
+`measure` asks you to place the target, waits 3 s for you to step away,
+averages 5 clean sweeps into a point and stores it on the board. `check`
+prints the board's estimate and its error at other distances. Both keep a
+log in `docs/data/`. `set 5:38.4 10:22.9 ...` stores points measured
+earlier; the board currently holds the table above.
 
-## Where code goes
+## Building and flashing
 
-| Path | What goes there |
+Needs [PlatformIO](https://platformio.org/). The commands below use the path
+of the official installer; use plain `pio` if it is on your `PATH`.
+
+```bash
+~/.platformio/penv/bin/pio run -e sticks3 -t upload     # build and flash over USB
+~/.platformio/penv/bin/pio device monitor -e sticks3    # serial log, 115200 baud
+~/.platformio/penv/bin/pio test -e native               # unit tests on the computer
+```
+
+PlatformIO has no board definition for the StickS3, so `platformio.ini` uses
+`esp32-s3-devkitc-1` with octal PSRAM (`qio_opi`) and 8 MB partitions.
+
+If the upload cannot connect, hold the side button until the internal green
+LED blinks (download mode) and try again. If the screen stays dark
+afterwards, press the side button once.
+
+**M5Burner.** `pio run -e sticks3 -t merged` builds
+`.pio/build/sticks3/firmware-merged.bin`, a full image to be written at
+address 0x0, which is what M5Burner expects.
+
+## How it works
+
+Time of flight is out of reach: light crosses a centimetre in 67 ps, and the
+receiver takes hundreds of microseconds to answer. What is left is how
+bright the echo is.
+
+The receiver is not a light sensor, though. It is a 38 kHz remote-control
+receiver: it only says whether it hears a 38 kHz carrier, never how strong
+it is. So the firmware turns the question around and looks for the weakest
+transmission the receiver still hears. It sends bursts of carrier at 24
+powers, set by the carrier's duty cycle from 1/1024 to 1/2 (50 dB), from
+the weakest up, 4 bursts each, and counts how many of each were heard. The
+power at which half of them are heard gives the **echo margin**: how many
+dB weaker than full power the LED can get while the echo still comes
+through. The closer or brighter the target, the larger the margin.
+Calibration points (margin at known distances) then turn the margin into
+centimetres, joining them with straight lines in log(distance).
+
+Getting the receiver to give consistent answers took most of the work
+(details in [docs/StickS3.md](docs/StickS3.md), "Infrared"):
+
+- Its gain control lowers the gain after every burst it hears and needs
+  about 15 ms to recover, so bursts are 0.8 ms of carrier and 15 ms apart.
+  With shorter gaps the margin read up to 7 dB low.
+- On a strong echo the gain control lifts the output for about 250 µs in
+  the middle of the burst, so a burst counts as heard by the total time the
+  output is low (at least 300 µs of 1.1 ms), not by its state at fixed
+  moments.
+- Before each reading the LED stays off for 8 blank bursts; if any of them
+  is "heard", the reading is ambient noise.
+- After a full sweep, the next one only measures 3 levels either side of
+  the last threshold: 0.6 s instead of 1.8 s; if the threshold
+  has left that window, the sweep starts over with all levels.
+
+## Serial commands
+
+`tools/serial_cmd.py send <command>` talks to the board; the full list is in
+that script and in [CLAUDE.md](CLAUDE.md). The useful ones: `sw` (one full
+sweep with the hits per level), `ir` (a line after every reading), `cal`,
+`calset`, `callist`, `calclr` (calibration), `wave <level>` (the receiver's
+output during one burst), `freq`, `n`, `gap` (sweep parameters), `demo <dB>`
+(a made-up reading for screenshots).
+
+`tools/ir_experiment.py` records sweeps at known distances into a CSV file
+for studying them; [docs/data/](docs/data) has the measurements behind the
+table above.
+
+## Project layout
+
+| Path | What it is |
 |---|---|
-| `lib/` | The logic: plain C++ with no Arduino, no M5Unified, no hardware. It gets the current time and the inputs as arguments, so tests can run it at any moment without waiting. One folder per module. |
-| `test/test_<module>/` | Unit tests for that module (Unity), run on the computer. |
-| `src/main.cpp` | Wiring: reads the buttons, the IMU and the battery, feeds `lib/`, handles serial commands. |
-| `src/Renderer.*` | Drawing. Put everything the screen shows in `Renderer::Screen` and draw it in `paint()`. |
-| `tools/` | Scripts for the computer. |
-| `docs/` | Screenshots, the board reference, the M5Burner record. |
+| `lib/` | Hardware-free logic, unit-tested on the computer |
+| `lib/IrSweep` | Transmit powers; turns one sweep into the echo margin |
+| `lib/RangeCalibration` | Turns the margin into centimetres from calibration points |
+| `lib/DisplayTimeout` | Turns the screen off after 3 minutes without activity |
+| `lib/Orientation` | Decides from the accelerometer whether the stick is upside down |
+| `lib/PickupDetector` | Notices the stick being picked up while the screen is off |
+| `lib/BatteryFilter` | Keeps the battery percentage steady |
+| `src/IrProbe` | Drives the IR LED and reads the IR receiver |
+| `src/` | Everything else that touches the board: drawing, buttons, wiring |
+| `test/` | Unit tests for `lib/` |
+| `tools/ir_calibrate.py` | Calibration and checking over USB |
+| `tools/ir_experiment.py` | Records raw sweeps at known distances |
+| `tools/serial_cmd.py` | Screenshots and test commands over USB |
+| `tools/merged_image.py` | The `merged` build target for M5Burner |
+| `docs/` | Screenshot, measurements, the board reference and the M5Burner listing |
 
-Keep hardware out of `lib/`: the native tests build only `lib/`, and an
-Arduino include there breaks them.
-
-The modules that come with the template:
-
-| Module | What it does |
-|---|---|
-| `DisplayTimeout` | Turns the screen off after 3 minutes without activity; the application decides what counts as activity |
-| `Orientation` | Decides from the accelerometer whether the stick is upside down, in portrait or landscape |
-| `PickupDetector` | Notices the stick being picked up while the screen is off, but not a stick lying still at any angle |
-| `BatteryFilter` | Keeps the battery percentage steady: the reading sags under load |
-
-The screen is portrait (135 x 240, KEY1 below the screen). For landscape,
-change the rotations in `src/Renderer.cpp` to 1 and 3 and use
-`Orientation::Layout::Landscape`.
-
-## Publishing to M5Burner
-
-```bash
-~/.platformio/penv/bin/pio run -e sticks3 -t merged
-```
-
-This builds `.pio/build/sticks3/firmware-merged.bin`: the bootloader, the
-partition table and the application in one image, written at address 0x0,
-which is what M5Burner expects. A bare `firmware.bin` would overwrite the
-bootloader there. [docs/m5burner.md](docs/m5burner.md) has the steps: the
-files to prepare, the cover, how to check the image on the board, the
-upload form and how the site behaves. Fill in its table when you publish.
-
-## When something goes wrong
-
-| Symptom | What to do |
-|---|---|
-| The upload fails with "No serial data received" | Hold the side button until the internal green LED blinks (download mode) and upload again. |
-| The screen stays dark after such an upload | Press the side button once: the chip stayed in the bootloader. |
-| No `/dev/cu.usbmodem*` port at all | The board is off. Press the side button once. |
-| The firmware stopped, the log shows `waiting for download` | A script opened the port and reset the chip into the bootloader. Press the side button once, and open the port with `serial_cmd.py`. |
-| Nothing arrives on Serial | `Serial.begin(115200)` is missing from `setup()`. |
-| Code passes the tests but does not compile for the board | Check that `platformio.ini` still has `build_unflags = -std=gnu++11`. |
-
-The side button belongs to the power chip, not the firmware: press to power
-on or reset, double press to power off, hold for download mode.
-
-## Documentation
-
-- [CLAUDE.md](CLAUDE.md): the rules of the project, commands, build settings
-  and why they are there, the serial protocol, how to flash and test.
-- [docs/StickS3.md](docs/StickS3.md): the board reference: buttons, IMU,
-  memory and speed, drawing, microphone and speaker, power, storage, Wi-Fi
-  and Bluetooth, tools on the Mac, and links to projects with working code.
-- [docs/m5burner.md](docs/m5burner.md): publishing on M5Burner.
-- [docs/README.template.md](docs/README.template.md): the README for your
-  project.
+[CLAUDE.md](CLAUDE.md) has the details: design decisions, board quirks and
+measurements; [docs/StickS3.md](docs/StickS3.md) is the board reference.
 
 ## License
 

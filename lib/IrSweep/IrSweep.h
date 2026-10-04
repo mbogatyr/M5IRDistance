@@ -37,7 +37,21 @@ class IrSweep {
         // Full power over the weakest power that is still heard, in dB.
         // 0 for NoEcho, the weakest level's margin for Saturated.
         float marginDb = 0;
+        // Where the 50 % point lies, as a fractional level: 0 for Saturated,
+        // kLevels - 1 for NoEcho.
+        float level = kLevels - 1;
     };
+
+    // A run of levels to measure, first to last inclusive.
+    struct Window {
+        int first = 0;
+        int last = kLevels - 1;
+
+        bool full() const { return first == 0 && last == kLevels - 1; }
+    };
+
+    // Levels measured either side of the last threshold.
+    static constexpr int kHalfWindow = 3;
 
     // Duty for level 0 (weakest) .. kLevels - 1 (full, d = 1/2).
     static uint32_t duty(int level);
@@ -57,6 +71,22 @@ class IrSweep {
     // j and up heard, below j not) the sum is kLevels - j and the point lands
     // half-way between levels j - 1 and j.
     static Result estimate(const uint8_t hits[kLevels], uint8_t bursts, uint8_t falseHits = 0);
+
+    // A full sweep takes 24 levels; while the target stays put the
+    // threshold moves little, so the next sweep only measures kHalfWindow
+    // levels either side of it: the bottom of the scale after Saturated,
+    // the top after NoEcho, all of it after Noisy.
+    static Window around(const Result &last);
+
+    // After measuring only `window`: whether the threshold is inside it,
+    // that is its lowest level unheard and its highest heard, unless they
+    // are the ends of the scale. If not, the sweep says nothing and a full
+    // one is needed.
+    static bool contains(const uint8_t hits[kLevels], uint8_t bursts, Window window);
+
+    // Fills the levels outside `window` as a full sweep would have found
+    // them if the threshold is inside it: unheard below, all heard above.
+    static void fill(uint8_t hits[kLevels], uint8_t bursts, Window window);
 
   private:
     static Result estimateHits(const uint8_t hits[kLevels], uint8_t bursts);
